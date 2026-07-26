@@ -13,7 +13,7 @@ The platform combines society maintenance, complaints, notices, visitors, member
 
 Residents can speak or type naturally. Hindi and Marathi audio is translated by Sarvam AI, then the permission-aware OpenAI agent checks society records and prepares safe actions. Write actions require confirmation.
 
-The agent can:
+The assistant can:
 
 - Create a formal English complaint from Hindi, Marathi, English, or Hinglish conversation.
 - Infer complaint category and priority from impact, duration, safety risk, and urgency.
