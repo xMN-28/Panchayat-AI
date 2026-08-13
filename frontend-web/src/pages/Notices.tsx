@@ -1,30 +1,233 @@
-import { useMemo, useState } from "react";
-import { Alert, Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, FormControlLabel, InputAdornment, MenuItem, Paper, Stack, Switch, Tab, Tabs, TextField, Typography } from "@mui/material";
-import { AddRounded, CampaignRounded, DeleteOutlineRounded, EventRounded, PushPinRounded, SearchRounded, VolumeUpRounded } from "@mui/icons-material";
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import dayjs from "dayjs";
-import { enqueueSnackbar } from "notistack";
+import {
+  Calendar as CalendarDays,
+  MapPin as Pin,
+  Megaphone,
+  Plus,
+  Trash as Trash2,
+} from "@phosphor-icons/react";
+import DateTimeField from "../components/DateTimeField";
 import { api } from "../api/client";
+import { EmptyState, LoadingPanel } from "../components/StateViews";
 import { useAuthStore } from "../store/auth";
-import { useI18n } from "../store/language";
 import type { Notice } from "../types/api";
-import { LocalizedText, useLocalizedTexts } from "../components/LocalizedText";
-import { playLocalizedSpeech } from "../utils/speech";
 
 export default function Notices() {
-  const me = useAuthStore((state) => state.user); const isAdmin = Boolean(me?.is_superuser || me?.roles.some((role) => role.name === "admin")); const canPublish = Boolean(isAdmin || me?.roles.some((role) => role.name === "committee")); const { t, language } = useI18n(); const qc = useQueryClient();
-  const [open, setOpen] = useState(false); const [deletingNotice, setDeletingNotice] = useState<Notice | null>(null); const [tab, setTab] = useState("all"); const [search, setSearch] = useState(""); const [form, setForm] = useState({ society_id: me?.society_id, title: "", body: "", is_pinned: false, audience: "all", expires_at: "" });
-  const list = useQuery({ queryKey: ["notices"], queryFn: async () => (await api.get<Notice[]>("/notices/")).data });
-  const create = useMutation({ mutationFn: async () => api.post("/notices/", { ...form, expires_at: form.expires_at || null }), onSuccess: async () => { enqueueSnackbar("Notice published", { variant: "success" }); setOpen(false); setForm({ society_id: me?.society_id, title: "", body: "", is_pinned: false, audience: "all", expires_at: "" }); await qc.invalidateQueries({ queryKey: ["notices"] }); }, onError: (error: any) => enqueueSnackbar(error?.response?.data?.detail || "Notice could not be published", { variant: "error" }) });
-  const remove = useMutation({ mutationFn: async (noticeId: number) => api.delete(`/notices/${noticeId}`), onSuccess: async () => { enqueueSnackbar("Notice removed", { variant: "success" }); setDeletingNotice(null); await qc.invalidateQueries({ queryKey: ["notices"] }); await qc.invalidateQueries({ queryKey: ["notices", "home"] }); }, onError: (error: any) => enqueueSnackbar(error?.response?.data?.detail || "Notice could not be removed", { variant: "error" }) });
-  const rows = useMemo(() => (list.data ?? []).filter((notice) => (tab === "all" || (tab === "important" && notice.is_pinned) || notice.audience === tab) && `${notice.title} ${notice.body}`.toLowerCase().includes(search.toLowerCase())), [list.data, search, tab]); const featured = rows.find((notice) => notice.is_pinned) ?? rows[0];
-  const [featuredTitle, featuredBody] = useLocalizedTexts([featured?.title ?? "", featured?.body ?? ""]);
-  const read = (notice: Notice) => { void playLocalizedSpeech(`${t(notice.title)}. ${t(notice.body)}`, language).catch(() => enqueueSnackbar("Read aloud is temporarily unavailable.", { variant: "error" })); };
-  return <Stack spacing={3}><Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ md: "end" }} spacing={2}><Box><Typography variant="overline" color="primary" fontWeight={900}>OFFICIAL UPDATES</Typography><Typography variant="h2" sx={{ fontSize: { xs: "2.5rem", md: "3.8rem" } }}>{t("Notice Board")}</Typography><Typography color="text.secondary" sx={{ mt: 1 }}>Important society information, arranged so urgent updates are impossible to miss.</Typography></Box>{canPublish && <Button variant="contained" size="large" startIcon={<AddRounded />} onClick={() => setOpen(true)}>{t("New notice")}</Button>}</Stack>
-    {featured && <Paper sx={{ p: { xs: 3, md: 5 }, bgcolor: featured.is_pinned ? "#D76049" : "#173F35", color: "white", border: 0, position: "relative", overflow: "hidden" }}><Box sx={{ position: "absolute", width: 260, height: 260, borderRadius: "50%", bgcolor: "rgba(255,255,255,.07)", right: -70, top: -110 }} /><Stack direction="row" spacing={1} alignItems="center"><PushPinRounded /><Typography variant="overline" fontWeight={900}>{featured.is_pinned ? "IMPORTANT NOTICE" : "LATEST NOTICE"}</Typography></Stack><Typography variant="h3" sx={{ mt: 2, maxWidth: 850 }}>{featuredTitle}</Typography><Typography sx={{ mt: 1.5, maxWidth: 900, fontSize: "1.05rem", opacity: .9, whiteSpace: "pre-wrap" }}>{featuredBody}</Typography><Stack direction={{ xs: "column", sm: "row" }} spacing={1} alignItems={{ xs: "stretch", sm: "center" }} sx={{ mt: 3 }}><Chip label={dayjs(featured.published_at).format("DD MMM YYYY")} sx={{ alignSelf: { xs: "flex-start", sm: "auto" }, bgcolor: "rgba(255,255,255,.15)", color: "white" }} /><Button color="inherit" startIcon={<VolumeUpRounded />} onClick={() => read(featured)}>Read aloud</Button>{isAdmin && <Button color="inherit" startIcon={<DeleteOutlineRounded />} onClick={() => setDeletingNotice(featured)} sx={{ ml: { sm: "auto !important" }, border: "1px solid rgba(255,255,255,.45)" }}>Remove</Button>}</Stack></Paper>}
-    <Paper sx={{ p: 1.5 }}><Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" spacing={1}><Tabs value={tab} onChange={(_event, value) => setTab(value)} variant="scrollable"><Tab value="all" label="All" /><Tab value="important" label="Important" /><Tab value="residents" label="Residents" /><Tab value="committee" label="Committee" /></Tabs><TextField size="small" placeholder="Search notices" value={search} onChange={(event) => setSearch(event.target.value)} InputProps={{ startAdornment: <InputAdornment position="start"><SearchRounded /></InputAdornment> }} /></Stack></Paper>
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", lg: "repeat(2,1fr)" }, gap: 2 }}>{rows.filter((notice) => notice.id !== featured?.id).map((notice) => <Paper key={notice.id} sx={{ p: 3 }}><Stack direction="row" justifyContent="space-between"><Box sx={{ width: 48, height: 48, borderRadius: 2, bgcolor: "action.hover", display: "grid", placeItems: "center", color: "primary.main" }}><CampaignRounded /></Box>{notice.is_pinned && <Chip icon={<PushPinRounded />} label="Important" color="error" size="small" />}</Stack><Typography variant="h5" sx={{ mt: 2 }}><LocalizedText>{notice.title}</LocalizedText></Typography><Typography color="text.secondary" sx={{ mt: 1, whiteSpace: "pre-wrap" }}><LocalizedText>{notice.body}</LocalizedText></Typography><Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mt: 3 }}><Stack direction="row" spacing={1} alignItems="center"><EventRounded fontSize="small" /><Typography variant="caption">{dayjs(notice.published_at).format("DD MMM YYYY")}</Typography></Stack><Stack direction="row" spacing={.5}><Button size="small" startIcon={<VolumeUpRounded />} onClick={() => read(notice)}>Listen</Button>{isAdmin && <Button size="small" color="error" startIcon={<DeleteOutlineRounded />} onClick={() => setDeletingNotice(notice)}>Remove</Button>}</Stack></Stack></Paper>)}</Box>{!list.isLoading && rows.length === 0 && <Alert severity="info">No notices match this view.</Alert>}
-    <Dialog open={open} onClose={() => setOpen(false)} fullWidth maxWidth="sm"><DialogTitle>Publish an official notice</DialogTitle><DialogContent><Stack spacing={2} sx={{ mt: 1 }}><TextField label="Notice title" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} /><TextField label="Message" multiline minRows={5} value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} /><TextField select label="Audience" value={form.audience} onChange={(event) => setForm({ ...form, audience: event.target.value })}><MenuItem value="all">Everyone</MenuItem><MenuItem value="residents">Residents</MenuItem><MenuItem value="committee">Committee</MenuItem></TextField><TextField type="datetime-local" label="Expires (optional)" InputLabelProps={{ shrink: true }} value={form.expires_at} onChange={(event) => setForm({ ...form, expires_at: event.target.value })} /><FormControlLabel control={<Switch checked={form.is_pinned} onChange={(event) => setForm({ ...form, is_pinned: event.target.checked })} />} label="Show as an important notice on Home" /></Stack></DialogContent><DialogActions><Button onClick={() => setOpen(false)}>Cancel</Button><Button variant="contained" disabled={!form.title.trim() || !form.body.trim() || create.isPending} onClick={() => create.mutate()}>Publish notice</Button></DialogActions></Dialog>
-    <Dialog open={Boolean(deletingNotice)} onClose={() => !remove.isPending && setDeletingNotice(null)} fullWidth maxWidth="xs"><DialogTitle>Remove this notice?</DialogTitle><DialogContent><Typography color="text.secondary">“{deletingNotice?.title}” will disappear from the notice board and Home. This cannot be undone.</Typography></DialogContent><DialogActions><Button onClick={() => setDeletingNotice(null)} disabled={remove.isPending}>Keep notice</Button><Button variant="contained" color="error" disabled={remove.isPending} onClick={() => deletingNotice && remove.mutate(deletingNotice.id)}>{remove.isPending ? "Removing…" : "Remove notice"}</Button></DialogActions></Dialog>
-  </Stack>;
+  const user = useAuthStore((state) => state.user);
+  const admin = Boolean(
+    user?.is_superuser || user?.roles.some((role) => role.name === "admin"),
+  );
+  const client = useQueryClient();
+  const [form, setForm] = useState({
+    society_id: user?.society_id,
+    title: "",
+    body: "",
+    is_pinned: false,
+    audience: "all",
+    expires_at: "",
+  });
+  const [message, setMessage] = useState("");
+  const list = useQuery({
+    queryKey: ["notices"],
+    queryFn: async () => (await api.get<Notice[]>("/notices/")).data,
+  });
+  const create = useMutation({
+    mutationFn: () =>
+      api.post("/notices/", { ...form, expires_at: form.expires_at || null }),
+    onSuccess: async () => {
+      setMessage("Notice published.");
+      setForm({
+        ...form,
+        title: "",
+        body: "",
+        is_pinned: false,
+        expires_at: "",
+      });
+      await client.invalidateQueries({ queryKey: ["notices"] });
+    },
+    onError: (error: any) =>
+      setMessage(
+        error?.response?.data?.detail || "The notice could not be published.",
+      ),
+  });
+  const remove = useMutation({
+    mutationFn: (id: number) => api.delete(`/notices/${id}`),
+    onSuccess: async () => {
+      setMessage("Notice removed.");
+      await client.invalidateQueries({ queryKey: ["notices"] });
+    },
+  });
+  if (list.isLoading) return <LoadingPanel />;
+  const pinned = list.data?.find((notice) => notice.is_pinned);
+  return (
+    <div className="page">
+      <header className="page-header">
+        <div className="page-title">
+          <p className="eyebrow">Official society updates</p>
+          <h1>Know what is happening.</h1>
+          <p>
+            Important information is surfaced on Home. Every active circular
+            remains available here.
+          </p>
+        </div>
+      </header>
+      {message ? (
+        <div
+          className={`feedback ${message.includes("could not") ? "error" : "success"}`}
+        >
+          {message}
+        </div>
+      ) : null}
+      {pinned ? (
+        <article className="surface dashboard-notice">
+          <div className="record-header">
+            <span className="metric-icon">
+              <Pin size={20} />
+            </span>
+            <span className="status pending">Important</span>
+          </div>
+          <div className="notice-body">
+            <h2>{pinned.title}</h2>
+            <p>{pinned.body}</p>
+            <div className="record-meta">
+              <span>
+                <CalendarDays size={14} />{" "}
+                {new Date(pinned.published_at).toLocaleString()}
+              </span>
+              <span>Audience: {pinned.audience}</span>
+            </div>
+          </div>
+        </article>
+      ) : null}
+      <div className={admin ? "section-grid" : ""}>
+        {admin ? (
+          <section className="surface surface-pad">
+            <p className="eyebrow">Administrator action</p>
+            <h2 className="section-title">Publish an update</h2>
+            <form
+              className="auth-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                create.mutate();
+              }}
+            >
+              <div className="field">
+                <label>Notice title</label>
+                <input
+                  required
+                  value={form.title}
+                  onChange={(event) =>
+                    setForm({ ...form, title: event.target.value })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>Message</label>
+                <textarea
+                  required
+                  value={form.body}
+                  onChange={(event) =>
+                    setForm({ ...form, body: event.target.value })
+                  }
+                />
+              </div>
+              <div className="form-grid">
+                <div className="field">
+                  <label>Audience</label>
+                  <select
+                    value={form.audience}
+                    onChange={(event) =>
+                      setForm({ ...form, audience: event.target.value })
+                    }
+                  >
+                    <option value="all">Everyone</option>
+                    <option value="residents">Residents</option>
+                    <option value="committee">Committee</option>
+                  </select>
+                </div>
+                <DateTimeField
+                  label="Expires"
+                  optional
+                  includeTime
+                  value={form.expires_at}
+                  onChange={(value) => setForm({ ...form, expires_at: value })}
+                />
+              </div>
+              <label className="field-label">
+                <input
+                  type="checkbox"
+                  checked={form.is_pinned}
+                  onChange={(event) =>
+                    setForm({ ...form, is_pinned: event.target.checked })
+                  }
+                />{" "}
+                Show as important on Home
+              </label>
+              <button
+                className="button"
+                type="submit"
+                disabled={create.isPending}
+              >
+                <Plus size={18} />
+                Publish notice
+              </button>
+            </form>
+          </section>
+        ) : null}
+        <section>
+          <div className="record-header">
+            <div>
+              <p className="eyebrow">Notice board</p>
+              <h2 className="section-title">
+                {list.data?.length ?? 0} active updates
+              </h2>
+            </div>
+          </div>
+          <div className="record-list">
+            {list.data?.map((notice) => (
+              <article className="record" key={notice.id}>
+                <div className="record-header">
+                  <span className="metric-icon">
+                    <Megaphone size={19} />
+                  </span>
+                  {notice.is_pinned ? (
+                    <span className="status pending">Pinned</span>
+                  ) : (
+                    <span className="status approved">Published</span>
+                  )}
+                </div>
+                <h3>{notice.title}</h3>
+                <p>{notice.body}</p>
+                <div className="record-meta">
+                  <span>{new Date(notice.published_at).toLocaleString()}</span>
+                  <span>Audience: {notice.audience}</span>
+                </div>
+                {admin ? (
+                  <div className="record-actions">
+                    <button
+                      className="button danger small"
+                      onClick={() =>
+                        window.confirm("Remove this notice permanently?") &&
+                        remove.mutate(notice.id)
+                      }
+                    >
+                      <Trash2 size={15} />
+                      Remove
+                    </button>
+                  </div>
+                ) : null}
+              </article>
+            ))}
+            {!list.data?.length ? (
+              <EmptyState
+                title="No active notices"
+                body="New society announcements will appear here."
+              />
+            ) : null}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
 }

@@ -1,108 +1,388 @@
 import { useMemo, useState } from "react";
-import { Box, Button, Chip, Dialog, DialogActions, DialogContent, DialogTitle, Divider, IconButton, InputAdornment, MenuItem, Paper, Stack, Tab, Tabs, TextField, Typography } from "@mui/material";
-import { ApartmentRounded, CalendarMonthRounded, CheckRounded, CloseRounded, DirectionsCarRounded, DoorFrontRounded, HowToRegRounded, LoginRounded, LogoutRounded, PersonAddAltRounded, PersonRounded, PhoneRounded, SearchRounded, ShieldRounded, TodayRounded } from "@mui/icons-material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { enqueueSnackbar } from "notistack";
+import {
+  Calendar as CalendarClock,
+  Check,
+  DoorOpen,
+  MagnifyingGlass as Search,
+  ShieldCheck,
+  SignIn as LogIn,
+  SignOut as LogOut,
+  UserPlus,
+  X,
+} from "@phosphor-icons/react";
+import DateTimeField from "../components/DateTimeField";
 import { api } from "../api/client";
-import { LoadingPanel } from "../components/StateViews";
+import { EmptyState, LoadingPanel } from "../components/StateViews";
 import { useAuthStore } from "../store/auth";
 import type { Flat, Visitor } from "../types/api";
-import { formatSocietyDateTime, societyInputToUtc, toSocietyDateTimeInput } from "../utils/dateTime";
+import {
+  formatSocietyDateTime,
+  societyInputToUtc,
+  toSocietyDateTimeInput,
+} from "../utils/dateTime";
 
 type ResidentProfile = { flat_id: number };
-type FormState = { wing: string; flat_number: string; name: string; phone: string; purpose: string; vehicle_number: string; expected_at: string };
-const emptyForm = (): FormState => ({ wing: "", flat_number: "", name: "", phone: "", purpose: "", vehicle_number: "", expected_at: toSocietyDateTimeInput() });
-const statusTone: Record<string, "default" | "warning" | "success" | "error" | "info"> = { pending: "warning", approved: "info", rejected: "error", checked_in: "success", checked_out: "default" };
-const purposes = ["Guest visit", "Delivery", "Maintenance", "Domestic help"];
-
+const blank = () => ({
+  wing: "",
+  flat_number: "",
+  name: "",
+  phone: "",
+  purpose: "",
+  vehicle_number: "",
+  expected_at: toSocietyDateTimeInput(),
+});
 export default function Visitors() {
-  const queryClient = useQueryClient();
-  const me = useAuthStore((state) => state.user);
-  const roles = new Set(me?.roles.map((role) => role.name) ?? []);
-  const canApprove = Boolean(me?.is_superuser || roles.has("admin") || roles.has("committee"));
-  const canOperateGate = Boolean(canApprove || roles.has("security"));
-  const canChooseHousehold = canOperateGate;
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [tab, setTab] = useState("active");
+  const user = useAuthStore((state) => state.user);
+  const roles = new Set(user?.roles.map((role) => role.name) ?? []);
+  const canApprove = Boolean(
+    user?.is_superuser || roles.has("admin") || roles.has("committee"),
+  );
+  const canOperate = canApprove || roles.has("security");
+  const [form, setForm] = useState(blank);
   const [search, setSearch] = useState("");
-  const [form, setForm] = useState<FormState>(emptyForm);
-  const profile = useQuery({ queryKey: ["resident-profile"], queryFn: async () => (await api.get<ResidentProfile>("/residents/me")).data, retry: false, enabled: roles.has("resident") });
-  const flats = useQuery({ queryKey: ["society-flats"], queryFn: async () => (await api.get<Flat[]>("/societies/flats")).data });
-  const list = useQuery({ queryKey: ["visitors"], queryFn: async () => (await api.get<Visitor[]>("/visitors/?limit=200")).data });
-  const enteredFlatIsValid = /^[1-4]0[1-4]$/.test(form.flat_number);
-  const selectedFlat = (flats.data ?? []).find((flat) => canChooseHousehold
-    ? flat.block_name === form.wing && flat.number === form.flat_number
-    : flat.id === profile.data?.flat_id);
-  const flatNumberError = canChooseHousehold && form.flat_number.length === 3 && (!enteredFlatIsValid || !selectedFlat);
-  const reset = () => setForm(emptyForm());
+  const [message, setMessage] = useState("");
+  const client = useQueryClient();
+  const profile = useQuery({
+    queryKey: ["resident-profile"],
+    queryFn: async () => (await api.get<ResidentProfile>("/residents/me")).data,
+    enabled: roles.has("resident"),
+    retry: false,
+  });
+  const flats = useQuery({
+    queryKey: ["society-flats"],
+    queryFn: async () => (await api.get<Flat[]>("/societies/flats")).data,
+  });
+  const list = useQuery({
+    queryKey: ["visitors"],
+    queryFn: async () =>
+      (await api.get<Visitor[]>("/visitors/?limit=200")).data,
+  });
+  const selectedFlat = canOperate
+    ? flats.data?.find(
+        (flat) =>
+          flat.block_name === form.wing && flat.number === form.flat_number,
+      )
+    : flats.data?.find((flat) => flat.id === profile.data?.flat_id);
   const create = useMutation({
-    mutationFn: async () => api.post("/visitors/", {
-      society_id: me?.society_id,
-      flat_id: selectedFlat?.id ?? profile.data?.flat_id,
-      name: form.name.trim(), phone: form.phone.trim() || null, purpose: form.purpose.trim() || null,
-      vehicle_number: form.vehicle_number.trim().toUpperCase() || null,
-      expected_at: societyInputToUtc(form.expected_at),
-    }),
-    onSuccess: async () => { enqueueSnackbar("Gate pass sent for approval", { variant: "success" }); setDialogOpen(false); reset(); await Promise.all([queryClient.invalidateQueries({ queryKey: ["visitors"] }), queryClient.invalidateQueries({ queryKey: ["notifications"] })]); },
-    onError: (error: any) => enqueueSnackbar(error?.response?.data?.detail || "Gate pass could not be created", { variant: "error" }),
+    mutationFn: () =>
+      api.post("/visitors/", {
+        society_id: user?.society_id,
+        flat_id: selectedFlat?.id ?? profile.data?.flat_id,
+        name: form.name.trim(),
+        phone: form.phone.trim() || null,
+        purpose: form.purpose.trim() || null,
+        vehicle_number: form.vehicle_number.trim() || null,
+        expected_at: societyInputToUtc(form.expected_at),
+      }),
+    onSuccess: async () => {
+      setMessage("Visitor pass sent for approval.");
+      setForm(blank());
+      await client.invalidateQueries({ queryKey: ["visitors"] });
+    },
+    onError: (error: any) =>
+      setMessage(
+        error?.response?.data?.detail ||
+          "The visitor request could not be submitted.",
+      ),
   });
   const action = useMutation({
-    mutationFn: async ({ id, kind }: { id: number; kind: string }) => api.post(`/visitors/${id}/action`, { action: kind }),
-    onSuccess: async (_data, variables) => { enqueueSnackbar(actionLabel(variables.kind), { variant: "success" }); await Promise.all([queryClient.invalidateQueries({ queryKey: ["visitors"] }), queryClient.invalidateQueries({ queryKey: ["notifications"] })]); },
-    onError: (error: any) => enqueueSnackbar(error?.response?.data?.detail || "Gate status could not be changed", { variant: "error" }),
+    mutationFn: ({ id, action }: { id: number; action: string }) =>
+      api.post(`/visitors/${id}/action`, { action }),
+    onSuccess: async () => client.invalidateQueries({ queryKey: ["visitors"] }),
   });
-  const visitors = useMemo(() => (list.data ?? []).filter((visitor) => {
-    const active = ["pending", "approved", "checked_in"].includes(visitor.status);
-    const tabMatch = tab === "all" || (tab === "active" ? active : !active);
-    const term = `${visitor.name} ${visitor.phone || ""} ${visitor.purpose || ""} ${visitor.vehicle_number || ""} ${visitor.wing_name || ""} ${visitor.flat_number || ""}`.toLowerCase();
-    return tabMatch && term.includes(search.toLowerCase());
-  }), [list.data, search, tab]);
+  const records = useMemo(
+    () =>
+      (list.data ?? []).filter((visitor) =>
+        `${visitor.name} ${visitor.wing_name} ${visitor.flat_number} ${visitor.purpose} ${visitor.vehicle_number}`
+          .toLowerCase()
+          .includes(search.toLowerCase()),
+      ),
+    [list.data, search],
+  );
   if (list.isLoading) return <LoadingPanel />;
   const all = list.data ?? [];
-  const formReady = form.name.trim().length >= 2 && Boolean(form.expected_at) && Boolean(selectedFlat);
-
-  return <Stack spacing={3}>
-    <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ md: "end" }} spacing={2}>
-      <Box><Typography variant="overline" color="primary" fontWeight={900} letterSpacing={1.6}>GATE DESK</Typography><Typography variant="h2" sx={{ fontSize: { xs: "2.35rem", md: "3.6rem" } }}>Visitor access, made clear</Typography><Typography color="text.secondary" sx={{ mt: 1, maxWidth: 700 }}>{canApprove ? "Review resident requests before security admits a visitor." : canOperateGate ? "See approved visitors and record entry or exit at the correct time." : "Request a pass in advance and follow its approval status here."}</Typography></Box>
-      <Button variant="contained" size="large" startIcon={<PersonAddAltRounded />} onClick={() => { reset(); setDialogOpen(true); }}>Request visitor pass</Button>
-    </Stack>
-    <Box sx={{ display: "grid", gridTemplateColumns: { xs: "repeat(2, 1fr)", md: "repeat(4, 1fr)" }, gap: 1.5 }}><GateMetric icon={<DoorFrontRounded />} label="Inside now" value={all.filter((v) => v.status === "checked_in").length} color="#2B805F" /><GateMetric icon={<TodayRounded />} label="Approved & expected" value={all.filter((v) => v.status === "approved").length} color="#3A6EA5" /><GateMetric icon={<HowToRegRounded />} label="Awaiting approval" value={all.filter((v) => v.status === "pending").length} color="#C67A20" /><GateMetric icon={<ShieldRounded />} label="Completed" value={all.filter((v) => v.status === "checked_out").length} color="#6D729C" /></Box>
-    <Paper sx={{ overflow: "hidden" }}>
-      <Stack direction={{ xs: "column", md: "row" }} justifyContent="space-between" alignItems={{ md: "center" }} spacing={1} sx={{ px: 2, pt: 1 }}><Tabs value={tab} onChange={(_event, value) => setTab(value)} aria-label="Visitor record filter" variant="scrollable"><Tab value="active" label="Active & expected" /><Tab value="history" label="History" /><Tab value="all" label="All" /></Tabs><TextField size="small" value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search visitor, wing, flat or vehicle" InputProps={{ startAdornment: <InputAdornment position="start"><SearchRounded /></InputAdornment> }} sx={{ maxWidth: { md: 340 }, pb: { xs: 2, md: 1 } }} /></Stack><Divider />
-      <Stack divider={<Divider />}>{visitors.map((visitor) => <VisitorRow key={visitor.id} visitor={visitor} canApprove={canApprove} canOperateGate={canOperateGate} busy={action.isPending} onAction={(kind) => action.mutate({ id: visitor.id, kind })} />)}{visitors.length === 0 && <Box sx={{ py: 8, textAlign: "center" }}><DoorFrontRounded sx={{ fontSize: 48, color: "text.disabled" }} /><Typography variant="h6" sx={{ mt: 1 }}>No visitor records here</Typography><Typography color="text.secondary">Try another filter or request a new visitor pass.</Typography></Box>}</Stack>
-    </Paper>
-
-    <Dialog open={dialogOpen} onClose={() => !create.isPending && setDialogOpen(false)} fullWidth maxWidth="md">
-      <Box component="form" onSubmit={(event) => { event.preventDefault(); if (formReady) create.mutate(); }}>
-        <DialogTitle><Typography variant="h4">Request a visitor pass</Typography><Typography variant="body2" color="text.secondary" sx={{ mt: .5 }}>A short request helps the committee approve quickly and security identify the right person.</Typography></DialogTitle>
-        <DialogContent>
-          <Stack spacing={3}>
-            <FormSection number="1" icon={<PersonRounded />} title="Who is visiting?" subtitle="Use the visitor’s name as security will recognise it.">
-              <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1.25fr 1fr" }, gap: 2 }}><TextField required autoFocus label="Visitor name" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="For example, Ajay Patil" helperText="At least 2 characters" /><TextField label="Mobile number" type="tel" inputProps={{ inputMode: "tel", maxLength: 20 }} value={form.phone} onChange={(event) => setForm({ ...form, phone: event.target.value })} placeholder="Optional" helperText="Helps security contact the visitor" InputProps={{ startAdornment: <InputAdornment position="start"><PhoneRounded /></InputAdornment> }} /></Box>
-            </FormSection>
-            <Divider />
-            <FormSection number="2" icon={<ApartmentRounded />} title="Where are they going?" subtitle="Choose the exact wing and flat so the pass reaches the right gate desk.">
-              {canChooseHousehold ? <Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1fr 1fr" }, gap: 2 }}><TextField select required label="Wing / building" value={form.wing} onChange={(event) => setForm({ ...form, wing: event.target.value, flat_number: "" })} helperText="Buildings A to D">{["A", "B", "C", "D"].map((wing) => <MenuItem key={wing} value={wing}>Wing {wing}</MenuItem>)}</TextField><TextField required disabled={!form.wing} label="Flat number" value={form.flat_number} onChange={(event) => setForm({ ...form, flat_number: event.target.value.replace(/\D/g, "").slice(0, 3) })} error={flatNumberError} inputProps={{ inputMode: "numeric", maxLength: 3, pattern: "[1-4]0[1-4]" }} placeholder="For example, 101" helperText={!form.wing ? "Choose a wing first" : flatNumberError ? "Enter 101-104, 201-204, 301-304, or 401-404" : selectedFlat ? `Valid flat on floor ${selectedFlat.floor}` : "Type a three-digit flat number"} /></Box> : <Paper variant="outlined" sx={{ p: 2, bgcolor: "action.hover" }}><Stack direction="row" alignItems="center" spacing={1.5}><ApartmentRounded color="primary" /><Box><Typography fontWeight={850}>{selectedFlat ? `Wing ${selectedFlat.block_name} · Flat ${selectedFlat.number}` : "Loading your registered home…"}</Typography><Typography variant="body2" color="text.secondary">The pass is securely linked to your approved resident profile.</Typography></Box></Stack></Paper>}
-            </FormSection>
-            <Divider />
-            <FormSection number="3" icon={<CalendarMonthRounded />} title="When and why?" subtitle="Times are saved and shown in Indian Standard Time (IST).">
-              <Stack spacing={2}><Box><Typography variant="caption" color="text.secondary" fontWeight={800}>QUICK PURPOSE</Typography><Stack direction="row" gap={1} flexWrap="wrap" sx={{ mt: .75 }}>{purposes.map((purpose) => <Chip key={purpose} clickable color={form.purpose === purpose ? "primary" : "default"} variant={form.purpose === purpose ? "filled" : "outlined"} label={purpose} onClick={() => setForm({ ...form, purpose })} />)}</Stack></Box><Box sx={{ display: "grid", gridTemplateColumns: { xs: "1fr", sm: "1.2fr 1fr" }, gap: 2 }}><TextField required label="Expected date and time" type="datetime-local" value={form.expected_at} onChange={(event) => setForm({ ...form, expected_at: event.target.value })} InputLabelProps={{ shrink: true }} helperText="Shown to everyone in IST" /><TextField label="Vehicle number" value={form.vehicle_number} onChange={(event) => setForm({ ...form, vehicle_number: event.target.value.toUpperCase() })} placeholder="MH 12 AB 1234" helperText="Optional for visitors arriving by vehicle" InputProps={{ startAdornment: <InputAdornment position="start"><DirectionsCarRounded /></InputAdornment> }} /></Box><TextField label="Purpose or note for security" multiline minRows={2} value={form.purpose} onChange={(event) => setForm({ ...form, purpose: event.target.value })} placeholder="Briefly explain the visit" helperText="Do not include sensitive personal information." /></Stack>
-            </FormSection>
-          </Stack>
-        </DialogContent>
-        <DialogActions><Button onClick={() => setDialogOpen(false)} disabled={create.isPending}>Cancel</Button><Button type="submit" variant="contained" disabled={!formReady || create.isPending}>{create.isPending ? "Sending request…" : "Send for approval"}</Button></DialogActions>
-      </Box>
-    </Dialog>
-  </Stack>;
+  return (
+    <div className="page">
+      <header className="page-header">
+        <div className="page-title">
+          <p className="eyebrow">Gate and visitor access</p>
+          <h1>
+            {canApprove
+              ? "Know who is expected."
+              : "A smoother welcome at the gate."}
+          </h1>
+          <p>
+            {canApprove
+              ? "Approve resident requests before security admits a visitor, then follow their entry and exit."
+              : "Request a pass in advance. The committee reviews it and security is notified after approval."}
+          </p>
+        </div>
+      </header>
+      <section className="stats-row">
+        <Stat
+          icon={<DoorOpen size={20} />}
+          label="Inside now"
+          value={all.filter((item) => item.status === "checked_in").length}
+        />
+        <Stat
+          icon={<CalendarClock size={20} />}
+          label="Expected"
+          value={all.filter((item) => item.status === "approved").length}
+        />
+        <Stat
+          icon={<ShieldCheck size={20} />}
+          label="Awaiting approval"
+          value={all.filter((item) => item.status === "pending").length}
+        />
+        <Stat
+          icon={<Check size={20} />}
+          label="Completed"
+          value={all.filter((item) => item.status === "checked_out").length}
+        />
+      </section>
+      {message ? (
+        <div
+          className={`feedback ${message.includes("could not") ? "error" : "success"}`}
+        >
+          {message}
+        </div>
+      ) : null}
+      <div className="section-grid">
+        <section className="surface surface-pad">
+          <p className="eyebrow">New request</p>
+          <h2 className="section-title">Who are you expecting?</h2>
+          <form
+            className="auth-form"
+            onSubmit={(event) => {
+              event.preventDefault();
+              create.mutate();
+            }}
+          >
+            <div className="field">
+              <label>Visitor name</label>
+              <input
+                required
+                minLength={2}
+                placeholder="For example, Ajay Patil"
+                value={form.name}
+                onChange={(event) =>
+                  setForm({ ...form, name: event.target.value })
+                }
+              />
+            </div>
+            {canOperate ? (
+              <div className="form-grid">
+                <div className="field">
+                  <label>Wing</label>
+                  <select
+                    required
+                    value={form.wing}
+                    onChange={(event) =>
+                      setForm({ ...form, wing: event.target.value })
+                    }
+                  >
+                    <option value="">Choose wing</option>
+                    {["A", "B", "C", "D"].map((wing) => (
+                      <option key={wing}>{wing}</option>
+                    ))}
+                  </select>
+                </div>
+                <div className="field">
+                  <label>Flat number</label>
+                  <input
+                    required
+                    pattern="[1-4]0[1-4]"
+                    placeholder="101"
+                    value={form.flat_number}
+                    onChange={(event) =>
+                      setForm({
+                        ...form,
+                        flat_number: event.target.value
+                          .replace(/\D/g, "")
+                          .slice(0, 3),
+                      })
+                    }
+                  />
+                </div>
+              </div>
+            ) : (
+              <div className="feedback">
+                Pass location:{" "}
+                {selectedFlat
+                  ? `Wing ${selectedFlat.block_name}, Flat ${selectedFlat.number}`
+                  : "Loading your approved address..."}
+              </div>
+            )}
+            <DateTimeField
+              label="Expected date and time"
+              includeTime
+              required
+              min={new Date().toISOString()}
+              value={form.expected_at}
+              onChange={(value) => setForm({ ...form, expected_at: value })}
+            />
+            <div className="field">
+              <label>
+                Purpose <small>(optional)</small>
+              </label>
+              <input
+                placeholder="Guest visit, delivery, repair..."
+                value={form.purpose}
+                onChange={(event) =>
+                  setForm({ ...form, purpose: event.target.value })
+                }
+              />
+            </div>
+            <div className="form-grid">
+              <div className="field">
+                <label>
+                  Phone <small>(optional)</small>
+                </label>
+                <input
+                  type="tel"
+                  value={form.phone}
+                  onChange={(event) =>
+                    setForm({ ...form, phone: event.target.value })
+                  }
+                />
+              </div>
+              <div className="field">
+                <label>
+                  Vehicle <small>(optional)</small>
+                </label>
+                <input
+                  value={form.vehicle_number}
+                  onChange={(event) =>
+                    setForm({
+                      ...form,
+                      vehicle_number: event.target.value.toUpperCase(),
+                    })
+                  }
+                />
+              </div>
+            </div>
+            <button
+              className="button"
+              type="submit"
+              disabled={!selectedFlat || create.isPending}
+            >
+              <UserPlus size={18} />
+              Send for approval
+            </button>
+          </form>
+        </section>
+        <section>
+          <div className="surface filters">
+            <Search size={18} />
+            <input
+              aria-label="Search visitors"
+              placeholder="Search visitor, wing, flat, or vehicle"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          <div className="record-list">
+            {records.map((visitor) => (
+              <article className="record" key={visitor.id}>
+                <div className="record-header">
+                  <div>
+                    <h3>{visitor.name}</h3>
+                    <div className="record-meta">
+                      <span>
+                        Wing {visitor.wing_name || "—"}, Flat{" "}
+                        {visitor.flat_number || "—"}
+                      </span>
+                      <span>
+                        {visitor.expected_at
+                          ? formatSocietyDateTime(visitor.expected_at)
+                          : formatSocietyDateTime(visitor.created_at)}{" "}
+                        IST
+                      </span>
+                    </div>
+                  </div>
+                  <span className={`status ${visitor.status}`}>
+                    {visitor.status.replaceAll("_", " ")}
+                  </span>
+                </div>
+                <p>
+                  {visitor.purpose || "No purpose provided"}
+                  {visitor.vehicle_number ? ` · ${visitor.vehicle_number}` : ""}
+                </p>
+                <div className="record-actions">
+                  {canApprove && visitor.status === "pending" ? (
+                    <>
+                      <button
+                        className="button small"
+                        onClick={() =>
+                          action.mutate({ id: visitor.id, action: "approve" })
+                        }
+                      >
+                        <Check size={15} />
+                        Approve
+                      </button>
+                      <button
+                        className="button danger small"
+                        onClick={() =>
+                          action.mutate({ id: visitor.id, action: "reject" })
+                        }
+                      >
+                        <X size={15} />
+                        Reject
+                      </button>
+                    </>
+                  ) : null}
+                  {canOperate && visitor.status === "approved" ? (
+                    <button
+                      className="button small"
+                      onClick={() =>
+                        action.mutate({ id: visitor.id, action: "check_in" })
+                      }
+                    >
+                      <LogIn size={15} />
+                      Check in
+                    </button>
+                  ) : null}
+                  {canOperate && visitor.status === "checked_in" ? (
+                    <button
+                      className="button ghost small"
+                      onClick={() =>
+                        action.mutate({ id: visitor.id, action: "check_out" })
+                      }
+                    >
+                      <LogOut size={15} />
+                      Check out
+                    </button>
+                  ) : null}
+                </div>
+              </article>
+            ))}
+            {!records.length ? (
+              <EmptyState
+                title="No matching visitor records"
+                body="Try a different search or create a new pass."
+              />
+            ) : null}
+          </div>
+        </section>
+      </div>
+    </div>
+  );
 }
-
-function FormSection({ number, icon, title, subtitle, children }: { number: string; icon: React.ReactNode; title: string; subtitle: string; children: React.ReactNode }) {
-  return <Stack spacing={2}><Stack direction="row" spacing={1.5} alignItems="flex-start"><Box sx={{ width: 38, height: 38, flexShrink: 0, borderRadius: 2, bgcolor: "primary.main", color: "primary.contrastText", display: "grid", placeItems: "center" }}>{icon}</Box><Box><Typography variant="h6"><Box component="span" color="text.disabled" sx={{ mr: 1 }}>{number}.</Box>{title}</Typography><Typography variant="body2" color="text.secondary">{subtitle}</Typography></Box></Stack><Box sx={{ pl: { md: 6.5 } }}>{children}</Box></Stack>;
+function Stat({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: number;
+}) {
+  return (
+    <article className="surface stat">
+      <span className="metric-icon">{icon}</span>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </article>
+  );
 }
-
-function VisitorRow({ visitor, canApprove, canOperateGate, busy, onAction }: { visitor: Visitor; canApprove: boolean; canOperateGate: boolean; busy: boolean; onAction: (kind: string) => void }) {
-  return <Stack direction={{ xs: "column", md: "row" }} alignItems={{ md: "center" }} spacing={2} sx={{ p: 2.25 }}><Box sx={{ width: 48, height: 48, borderRadius: 2, bgcolor: "action.hover", display: "grid", placeItems: "center", fontWeight: 900, fontSize: 18 }}>{visitor.name.slice(0, 1).toUpperCase()}</Box><Box sx={{ minWidth: 0, flex: 1 }}><Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap"><Typography fontWeight={850}>{visitor.name}</Typography><Chip size="small" label={visitor.status.replaceAll("_", " ")} color={statusTone[visitor.status] || "default"} /></Stack><Typography variant="body2" color="text.secondary">{visitor.wing_name && visitor.flat_number ? `Wing ${visitor.wing_name} · Flat ${visitor.flat_number}` : `Flat record ${visitor.flat_id}`} · {visitor.purpose || "Purpose not provided"}{visitor.vehicle_number ? ` · ${visitor.vehicle_number}` : ""}</Typography><Typography variant="caption" color="text.secondary">{visitor.expected_at ? `Expected ${formatSocietyDateTime(visitor.expected_at)} IST` : `Created ${formatSocietyDateTime(visitor.created_at)} IST`}{visitor.host_name ? ` · Requested by ${visitor.host_name}` : ""}</Typography></Box><Stack direction="row" spacing={1} flexWrap="wrap">{canApprove && visitor.status === "pending" && <><Button size="small" variant="contained" startIcon={<CheckRounded />} disabled={busy} onClick={() => onAction("approve")}>Approve</Button><IconButton color="error" aria-label={`Reject ${visitor.name}`} disabled={busy} onClick={() => onAction("reject")}><CloseRounded /></IconButton></>}{canOperateGate && visitor.status === "approved" && <Button size="small" variant="contained" startIcon={<LoginRounded />} disabled={busy} onClick={() => onAction("check_in")}>Check in</Button>}{canOperateGate && visitor.status === "checked_in" && <Button size="small" variant="outlined" startIcon={<LogoutRounded />} disabled={busy} onClick={() => onAction("check_out")}>Check out</Button>}</Stack></Stack>;
-}
-
-function GateMetric({ icon, label, value, color }: { icon: React.ReactNode; label: string; value: number; color: string }) { return <Paper sx={{ p: 2, borderTop: `4px solid ${color}` }}><Stack direction="row" justifyContent="space-between" alignItems="start"><Box><Typography variant="h4">{value}</Typography><Typography variant="body2" color="text.secondary">{label}</Typography></Box><Box sx={{ color }}>{icon}</Box></Stack></Paper>; }
-function actionLabel(kind: string) { return ({ approve: "Visitor approved; security has been notified", reject: "Visitor request rejected", check_in: "Visitor checked in", check_out: "Visitor checked out" } as Record<string, string>)[kind] || "Gate record updated"; }

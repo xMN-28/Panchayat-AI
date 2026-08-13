@@ -1,40 +1,4 @@
-import { Box, CircularProgress, Paper, Typography } from "@mui/material";
-
-export function LoadingPanel({ label = "Loading…" }: { label?: string }) {
-  return (
-    <Paper sx={{ p: 4, display: "flex", alignItems: "center", gap: 2 }}>
-      <CircularProgress size={20} />
-      <Typography>{label}</Typography>
-    </Paper>
-  );
-}
-
-export function EmptyState({
-  title,
-  hint,
-}: {
-  title: string;
-  hint?: string;
-}) {
-  return (
-    <Paper sx={{ p: 4, textAlign: "center" }}>
-      <Typography variant="h6">{title}</Typography>
-      {hint && (
-        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
-          {hint}
-        </Typography>
-      )}
-    </Paper>
-  );
-}
-
-export function ErrorPanel({ message }: { message: string }) {
-  return (
-    <Paper sx={{ p: 4, border: "1px solid", borderColor: "error.main" }}>
-      <Box sx={{ color: "error.main" }}>
-        <Typography variant="h6">Something went wrong</Typography>
-        <Typography variant="body2">{message}</Typography>
-      </Box>
-    </Paper>
-  );
-}
+import { Tray as Inbox, WarningCircle as CircleAlert } from "@phosphor-icons/react";
+export function LoadingPanel({ label = "Loading your society data..." }: { label?: string }) { return <div className="surface empty-state" role="status"><div><span className="recording-pulse" /><p>{label}</p></div></div>; }
+export function ErrorPanel({ message = "This information could not be loaded. Check the connection and try again." }: { message?: string }) { return <div className="surface empty-state" role="alert"><div><CircleAlert size={38} /><h2>Something needs attention</h2><p>{message}</p></div></div>; }
+export function EmptyState({ title = "Nothing here yet", body }: { title?: string; body?: string }) { return <div className="surface empty-state"><div><Inbox size={38} /><h2>{title}</h2>{body ? <p>{body}</p> : null}</div></div>; }

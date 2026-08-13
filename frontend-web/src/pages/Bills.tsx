@@ -1,52 +1,38 @@
 import { useMemo, useState } from "react";
-import {
-  Alert,
-  Box,
-  Button,
-  Chip,
-  Dialog,
-  DialogActions,
-  DialogContent,
-  DialogTitle,
-  Divider,
-  LinearProgress,
-  MenuItem,
-  Paper,
-  Stack,
-  TextField,
-  Typography,
-} from "@mui/material";
-import {
-  AccountBalanceWalletRounded,
-  AddRounded,
-  CalendarMonthRounded,
-  CheckCircleRounded,
-  DownloadRounded,
-  HistoryRounded,
-  PaymentsRounded,
-  ReceiptLongRounded,
-  WarningAmberRounded,
-} from "@mui/icons-material";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import dayjs from "dayjs";
-import { enqueueSnackbar } from "notistack";
+import {
+  Calendar as CalendarDays,
+  CheckCircle as CheckCircle2,
+  CurrencyInr as IndianRupee,
+  Download,
+  Receipt as ReceiptText,
+  Wallet as WalletCards,
+} from "@phosphor-icons/react";
+import DateTimeField from "../components/DateTimeField";
 import { api } from "../api/client";
+import { EmptyState, LoadingPanel } from "../components/StateViews";
 import { useAuthStore } from "../store/auth";
-import { useI18n } from "../store/language";
 import type { Bill } from "../types/api";
 
 export default function Bills() {
-  const me = useAuthStore((state) => state.user);
-  const roles = me?.roles.map((role) => role.name) ?? [];
+  const user = useAuthStore((state) => state.user);
+  const roles = user?.roles.map((role) => role.name) ?? [];
   const manager = Boolean(
-    me?.is_superuser ||
+    user?.is_superuser ||
       roles.some((role) => ["admin", "committee"].includes(role)),
   );
-  const admin = Boolean(me?.is_superuser || roles.includes("admin"));
-  const { t } = useI18n();
-  const qc = useQueryClient();
-  const [createOpen, setCreateOpen] = useState(false);
-  const [payOpen, setPayOpen] = useState(false);
+  const admin = Boolean(user?.is_superuser || roles.includes("admin"));
+  const now = new Date();
+  const [form, setForm] = useState({
+    billing_year: now.getFullYear(),
+    billing_month: now.getMonth() + 1,
+    maintenance_amount: 2500,
+    due_date: new Date(now.getTime() + 15 * 86400000)
+      .toISOString()
+      .slice(0, 10),
+  });
+  const [message, setMessage] = useState("");
+  const client = useQueryClient();
   const bills = useQuery({
     queryKey: ["bills"],
     queryFn: async () => (await api.get<Bill[]>("/bills/?limit=200")).data,
@@ -63,549 +49,306 @@ export default function Bills() {
     (sum, bill) => sum + Math.max(0, bill.total_amount - bill.paid_amount),
     0,
   );
-  const refresh = async () => {
-    await qc.invalidateQueries({ queryKey: ["bills"] });
-    await qc.invalidateQueries({ queryKey: ["dues-summary"] });
-    await qc.invalidateQueries({ queryKey: ["admin-stats"] });
-  };
-  const byResident = useMemo(() => {
-    const groups = new Map<number, Bill[]>();
-    rows.forEach((bill) => {
-      const key = bill.billed_user_id ?? 0;
-      groups.set(key, [...(groups.get(key) ?? []), bill]);
-    });
-    return [...groups.values()];
-  }, [rows]);
-  const existingPeriods = useMemo(
+  const periods = useMemo(
     () =>
       new Set(rows.map((bill) => `${bill.billing_year}-${bill.billing_month}`)),
     [rows],
   );
-  return (
-    <Stack spacing={3}>
-      <Stack
-        direction={{ xs: "column", md: "row" }}
-        justifyContent="space-between"
-        alignItems={{ md: "end" }}
-        spacing={2}
-      >
-        <Box>
-          <Typography variant="overline" color="primary" fontWeight={900}>
-            MAINTENANCE
-          </Typography>
-          <Typography
-            variant="h2"
-            sx={{ fontSize: { xs: "2.5rem", md: "3.8rem" } }}
-          >
-            {manager ? t("Monthly billing") : t("Your society dues")}
-          </Typography>
-          <Typography color="text.secondary" sx={{ mt: 1 }}>
-            {manager
-              ? "Set one maintenance amount once and bill every verified resident automatically."
-              : "Older unpaid months are combined so you can clear everything in one payment."}
-          </Typography>
-        </Box>
-        {admin && (
-          <Button
-            variant="contained"
-            size="large"
-            startIcon={<AddRounded />}
-            onClick={() => setCreateOpen(true)}
-          >
-            {t("Create monthly maintenance")}
-          </Button>
-        )}
-      </Stack>
-      <Box
-        sx={{
-          display: "grid",
-          gridTemplateColumns: { xs: "1fr", sm: "repeat(3,1fr)" },
-          gap: 1.5,
-        }}
-      >
-        <Metric
-          icon={<AccountBalanceWalletRounded />}
-          label={manager ? "Society outstanding" : "Total to pay"}
-          value={`₹${outstanding.toLocaleString("en-IN")}`}
-          tone="#D76049"
-        />
-        <Metric
-          icon={<CalendarMonthRounded />}
-          label={manager ? "Unpaid resident bills" : "Unpaid months"}
-          value={String(unpaid.length)}
-          tone="#C67A20"
-        />
-        <Metric
-          icon={<CheckCircleRounded />}
-          label="Paid bills"
-          value={String(rows.filter((bill) => bill.status === "paid").length)}
-          tone="#2B805F"
-        />
-      </Box>
-      {bills.isLoading && <LinearProgress />}
-      {bills.isError && (
-        <Alert severity="error">Maintenance records could not be loaded.</Alert>
-      )}
-      {!manager && rows.length > 0 && (
-        <ResidentDues
-          rows={rows}
-          outstanding={outstanding}
-          demo={Boolean(config.data?.demo_enabled)}
-          razorpay={Boolean(config.data?.razorpay_enabled)}
-          payOpen={payOpen}
-          setPayOpen={setPayOpen}
-          onPaid={refresh}
-        />
-      )}
-      {manager && (
-        <Stack spacing={1.5}>
-          <Typography variant="h5">Resident collection status</Typography>
-          {byResident.map((residentBills) => {
-            const due = residentBills.reduce(
-              (sum, bill) =>
-                sum + Math.max(0, bill.total_amount - bill.paid_amount),
-              0,
-            );
-            const user = residentBills[0].billed_user;
-            return (
-              <Paper key={residentBills[0].billed_user_id} sx={{ p: 2.5 }}>
-                <Stack
-                  direction={{ xs: "column", md: "row" }}
-                  justifyContent="space-between"
-                  alignItems={{ md: "center" }}
-                  spacing={2}
-                >
-                  <Box>
-                    <Typography fontWeight={900}>
-                      {user?.full_name || "Resident"}
-                    </Typography>
-                    <Typography variant="body2" color="text.secondary">
-                      {residentBills.length} monthly bills ·{" "}
-                      {
-                        residentBills.filter((bill) => bill.status === "paid")
-                          .length
-                      }{" "}
-                      paid
-                    </Typography>
-                  </Box>
-                  <Stack direction="row" spacing={1} alignItems="center">
-                    <Chip
-                      label={
-                        due
-                          ? `${residentBills.filter((bill) => bill.status !== "paid").length} due`
-                          : "Clear"
-                      }
-                      color={due ? "warning" : "success"}
-                    />
-                    <Typography variant="h6">
-                      ₹{due.toLocaleString("en-IN")}
-                    </Typography>
-                  </Stack>
-                </Stack>
-              </Paper>
-            );
-          })}
-          {byResident.length === 0 && <Empty />}
-        </Stack>
-      )}
-      {!manager && rows.length === 0 && <Empty />}
-      <CreateMonthlyDialog
-        open={createOpen}
-        existingPeriods={existingPeriods}
-        onClose={() => setCreateOpen(false)}
-        onCreated={async () => {
-          setCreateOpen(false);
-          await refresh();
-        }}
-      />
-    </Stack>
-  );
-}
-
-function ResidentDues({
-  rows,
-  outstanding,
-  demo,
-  razorpay,
-  payOpen,
-  setPayOpen,
-  onPaid,
-}: {
-  rows: Bill[];
-  outstanding: number;
-  demo: boolean;
-  razorpay: boolean;
-  payOpen: boolean;
-  setPayOpen: (open: boolean) => void;
-  onPaid: () => Promise<void>;
-}) {
-  const unpaid = rows.filter(
-    (bill) => !["paid", "cancelled"].includes(bill.status),
-  );
+  const duplicate = periods.has(`${form.billing_year}-${form.billing_month}`);
+  const refresh = () => client.invalidateQueries({ queryKey: ["bills"] });
+  const monthly = useMutation({
+    mutationFn: () => api.post("/bills/monthly", form),
+    onSuccess: async ({ data }) => {
+      setMessage(`${data.created} resident accounts were billed.`);
+      await refresh();
+    },
+    onError: (error: any) =>
+      setMessage(
+        error?.response?.data?.detail ||
+          "Monthly maintenance could not be created.",
+      ),
+  });
   const pay = useMutation({
     mutationFn: async () => {
-      if (demo) return (await api.post("/bills/payments/demo")).data;
+      if (config.data?.demo_enabled)
+        return (await api.post("/bills/payments/demo")).data;
       const { data: order } = await api.post("/bills/payment-order");
       await loadRazorpay();
-      return new Promise((resolve, reject) => {
-        const checkout = new (window as any).Razorpay({
+      return new Promise((resolve, reject) =>
+        new (window as any).Razorpay({
           key: order.key_id,
           amount: order.amount_paise,
           currency: "INR",
-          name: "Panchayat",
+          name: "Panchayat AI",
           description: "Combined maintenance dues",
           order_id: order.order_id,
-          prefill: { name: order.resident_name },
-          theme: { color: "#173F35" },
-          handler: async (response: any) => {
-            try {
-              resolve(
-                (await api.post("/bills/payments/verify", response)).data,
-              );
-            } catch (error) {
-              reject(error);
-            }
-          },
+          handler: async (response: any) =>
+            resolve((await api.post("/bills/payments/verify", response)).data),
           modal: { ondismiss: () => reject(new Error("Payment cancelled")) },
-        });
-        checkout.open();
-      });
-    },
-    onSuccess: async (result: any) => {
-      setPayOpen(false);
-      enqueueSnackbar(
-        result?.demo
-          ? "Demo payment completed. No real money was transferred."
-          : "Payment received and awaiting bank confirmation.",
-        { variant: "success" },
+        }).open(),
       );
-      await onPaid();
+    },
+    onSuccess: async () => {
+      setMessage("Payment completed. Your maintenance account is updated.");
+      await refresh();
     },
     onError: (error: any) =>
-      enqueueSnackbar(
+      setMessage(
         error?.response?.data?.detail ||
           error?.message ||
-          "Payment could not be completed",
-        { variant: "error" },
+          "Payment could not be completed.",
       ),
   });
+  if (bills.isLoading) return <LoadingPanel />;
   return (
-    <>
-      <Paper
-        sx={{
-          overflow: "hidden",
-          border: 0,
-          boxShadow: "0 18px 55px rgba(23,63,53,.12)",
-        }}
-      >
-        <Box sx={{ p: { xs: 3, md: 5 }, bgcolor: "#173F35", color: "white" }}>
-          <Typography variant="overline" sx={{ opacity: 0.7 }}>
-            COMBINED OUTSTANDING
-          </Typography>
-          <Stack
-            direction={{ xs: "column", md: "row" }}
-            justifyContent="space-between"
-            alignItems={{ md: "end" }}
-            spacing={2}
-          >
-            <Box>
-              <Typography variant="h3">
-                ₹{outstanding.toLocaleString("en-IN")}
-              </Typography>
-              <Typography sx={{ opacity: 0.75 }}>
-                {unpaid.length
-                  ? `${unpaid.length} unpaid month${unpaid.length > 1 ? "s" : ""} included`
-                  : "Nothing is due"}
-              </Typography>
-            </Box>
-            {outstanding > 0 && (
-              <Button
-                size="large"
-                variant="contained"
-                color="secondary"
-                startIcon={<PaymentsRounded />}
-                onClick={() => setPayOpen(true)}
-              >
-                {demo ? "Pay with demo checkout" : "Pay all securely"}
-              </Button>
-            )}
-          </Stack>
-        </Box>
-        <Box sx={{ p: { xs: 2.5, md: 4 } }}>
-          <Typography variant="h6">Months included</Typography>
-          <Stack divider={<Divider />} sx={{ mt: 1.5 }}>
-            {unpaid.map((bill) => (
-              <Stack
-                key={bill.id}
-                direction="row"
-                justifyContent="space-between"
-                alignItems="center"
-                sx={{ py: 1.5 }}
-              >
-                <Box>
-                  <Typography fontWeight={850}>
-                    {dayjs(
-                      `${bill.billing_year}-${bill.billing_month}-01`,
-                    ).format("MMMM YYYY")}
-                  </Typography>
-                  <Typography variant="caption" color="text.secondary">
-                    Due {dayjs(bill.due_date).format("DD MMM YYYY")} ·{" "}
-                    {bill.bill_number}
-                  </Typography>
-                </Box>
-                <Typography fontWeight={900}>
-                  ₹
-                  {Math.max(
-                    0,
-                    bill.total_amount - bill.paid_amount,
-                  ).toLocaleString("en-IN")}
-                </Typography>
-              </Stack>
-            ))}
-          </Stack>
-          {unpaid.length === 0 && (
-            <Alert severity="success" sx={{ mt: 2 }}>
-              Your maintenance account is fully paid.
-            </Alert>
-          )}
-        </Box>
-      </Paper>
-      <Box>
-        <Stack direction="row" spacing={1} alignItems="center" sx={{ mb: 1.5 }}>
-          <HistoryRounded color="primary" />
-          <Typography variant="h5">Payment history</Typography>
-        </Stack>
-        <Stack spacing={1}>
-          {rows
-            .filter((bill) => bill.status === "paid")
-            .map((bill) => (
-              <Paper key={bill.id} sx={{ p: 2 }}>
-                <Stack
-                  direction="row"
-                  justifyContent="space-between"
-                  alignItems="center"
-                >
-                  <Box>
-                    <Typography fontWeight={800}>{bill.title}</Typography>
-                    <Typography variant="caption" color="text.secondary">
-                      Paid · {bill.bill_number}
-                    </Typography>
-                  </Box>
-                  <Download bill={bill} />
-                </Stack>
-              </Paper>
-            ))}
-        </Stack>
-      </Box>
-      <Dialog
-        open={payOpen}
-        onClose={() => setPayOpen(false)}
-        fullWidth
-        maxWidth="xs"
-      >
-        <DialogTitle>{demo ? "Demo payment" : "Confirm payment"}</DialogTitle>
-        <DialogContent>
-          {demo && (
-            <Alert severity="warning" icon={<WarningAmberRounded />}>
-              Demo mode only. No bank, UPI account, or real money is involved.
-            </Alert>
-          )}
-          <Typography variant="h3" sx={{ mt: 2 }}>
-            ₹{outstanding.toLocaleString("en-IN")}
-          </Typography>
-          <Typography color="text.secondary">
-            This clears all {unpaid.length} outstanding maintenance month
-            {unpaid.length > 1 ? "s" : ""}.
-          </Typography>
-        </DialogContent>
-        <DialogActions>
-          <Button onClick={() => setPayOpen(false)}>Cancel</Button>
-          <Button
-            variant="contained"
+    <div className="page">
+      <header className="page-header">
+        <div className="page-title">
+          <p className="eyebrow">Monthly maintenance</p>
+          <h1>
+            {manager ? "Collection, made visible." : "One clear amount to pay."}
+          </h1>
+          <p>
+            {manager
+              ? "See every resident account. Only administrators can create the monthly charge."
+              : "All older unpaid months are combined so nothing is hidden across separate bills."}
+          </p>
+        </div>
+        {!manager && outstanding > 0 ? (
+          <button
+            className="button secondary"
             disabled={pay.isPending}
             onClick={() => pay.mutate()}
           >
-            {demo ? "Complete demo payment" : "Continue to UPI"}
-          </Button>
-        </DialogActions>
-      </Dialog>
-    </>
-  );
-}
-
-function CreateMonthlyDialog({
-  open,
-  onClose,
-  onCreated,
-  existingPeriods,
-}: {
-  open: boolean;
-  onClose: () => void;
-  onCreated: () => Promise<void>;
-  existingPeriods: Set<string>;
-}) {
-  const now = dayjs();
-  const [form, setForm] = useState({
-    billing_year: now.year(),
-    billing_month: now.month() + 1,
-    maintenance_amount: 2500,
-    due_date: now.add(15, "day").format("YYYY-MM-DD"),
-  });
-  const create = useMutation({
-    mutationFn: async () => (await api.post("/bills/monthly", form)).data,
-    onSuccess: async (data) => {
-      enqueueSnackbar(
-        `${data.created} residents billed for ${dayjs()
-          .month(data.billing_month - 1)
-          .format("MMMM")} ${data.billing_year}.`,
-        { variant: "success" },
-      );
-      await onCreated();
-    },
-    onError: (error: any) =>
-      enqueueSnackbar(
-        error?.response?.data?.detail || "Monthly billing failed",
-        { variant: "error" },
-      ),
-  });
-  const duplicate = existingPeriods.has(
-    `${form.billing_year}-${form.billing_month}`,
-  );
-  return (
-    <Dialog open={open} onClose={onClose} fullWidth maxWidth="sm">
-      <DialogTitle>Create maintenance for everyone</DialogTitle>
-      <DialogContent>
-        <Alert severity={duplicate ? "error" : "info"} sx={{ mb: 2 }}>
-          {duplicate
-            ? "This month has already been billed. Choose another month."
-            : "One amount is sent to every approved resident with a linked flat. A month can only be billed once."}
-        </Alert>
-        <Stack spacing={2}>
-          <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-            <TextField
-              fullWidth
-              type="number"
-              label="Year"
-              value={form.billing_year}
-              onChange={(e) =>
-                setForm({ ...form, billing_year: Number(e.target.value) })
-              }
-            />
-            <TextField
-              fullWidth
-              select
-              label="Month"
-              value={form.billing_month}
-              onChange={(e) =>
-                setForm({ ...form, billing_month: Number(e.target.value) })
-              }
-            >
-              {Array.from({ length: 12 }, (_, index) => (
-                <MenuItem key={index + 1} value={index + 1}>
-                  {dayjs().month(index).format("MMMM")}
-                </MenuItem>
-              ))}
-            </TextField>
-          </Stack>
-          <TextField
-            type="number"
-            label="Maintenance amount per resident"
-            value={form.maintenance_amount}
-            onChange={(e) =>
-              setForm({ ...form, maintenance_amount: Number(e.target.value) })
-            }
-          />
-          <TextField
-            type="date"
-            label="Due date"
-            InputLabelProps={{ shrink: true }}
-            value={form.due_date}
-            onChange={(e) => setForm({ ...form, due_date: e.target.value })}
-          />
-        </Stack>
-      </DialogContent>
-      <DialogActions sx={{ p: 3 }}>
-        <Button onClick={onClose}>Cancel</Button>
-        <Button
-          variant="contained"
-          disabled={
-            duplicate || form.maintenance_amount <= 0 || create.isPending
-          }
-          onClick={() => create.mutate()}
+            <WalletCards size={18} />
+            {pay.isPending
+              ? "Opening payment..."
+              : config.data?.demo_enabled
+                ? "Pay with demo checkout"
+                : "Pay all dues"}
+          </button>
+        ) : null}
+      </header>
+      {message ? (
+        <div
+          className={`feedback ${message.includes("could not") ? "error" : "success"}`}
         >
-          Bill every resident
-        </Button>
-      </DialogActions>
-    </Dialog>
+          {message}
+        </div>
+      ) : null}
+      <section className="stats-row">
+        <Stat
+          icon={<IndianRupee size={20} />}
+          label={manager ? "Society outstanding" : "Total outstanding"}
+          value={`₹${outstanding.toLocaleString("en-IN")}`}
+        />
+        <Stat
+          icon={<CalendarDays size={20} />}
+          label="Unpaid months"
+          value={String(unpaid.length)}
+        />
+        <Stat
+          icon={<CheckCircle2 size={20} />}
+          label="Paid bills"
+          value={String(rows.filter((bill) => bill.status === "paid").length)}
+        />
+        <Stat
+          icon={<ReceiptText size={20} />}
+          label="Total records"
+          value={String(rows.length)}
+        />
+      </section>
+      {admin ? (
+        <section className="surface surface-pad">
+          <div className="record-header">
+            <div>
+              <p className="eyebrow">Administrator action</p>
+              <h2 className="section-title">
+                Create monthly maintenance for everyone
+              </h2>
+            </div>
+            <span className="status approved">Admin only</span>
+          </div>
+          <form
+            className="form-grid"
+            onSubmit={(event) => {
+              event.preventDefault();
+              monthly.mutate();
+            }}
+          >
+            <div className="field">
+              <label>Billing year</label>
+              <input
+                type="number"
+                value={form.billing_year}
+                onChange={(event) =>
+                  setForm({ ...form, billing_year: Number(event.target.value) })
+                }
+              />
+            </div>
+            <div className="field">
+              <label>Billing month</label>
+              <select
+                value={form.billing_month}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    billing_month: Number(event.target.value),
+                  })
+                }
+              >
+                {Array.from({ length: 12 }, (_, index) => (
+                  <option key={index} value={index + 1}>
+                    {new Date(2000, index).toLocaleString("en", {
+                      month: "long",
+                    })}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="field">
+              <label>Maintenance amount per resident</label>
+              <input
+                type="number"
+                min="1"
+                value={form.maintenance_amount}
+                onChange={(event) =>
+                  setForm({
+                    ...form,
+                    maintenance_amount: Number(event.target.value),
+                  })
+                }
+              />
+            </div>
+            <DateTimeField
+              label="Due date"
+              required
+              value={form.due_date}
+              onChange={(value) => setForm({ ...form, due_date: value })}
+            />
+            <div>
+              {duplicate ? (
+                <div className="feedback error">
+                  This month has already been billed. Choose another month.
+                </div>
+              ) : (
+                <div className="feedback">
+                  Every approved resident with a linked flat receives the same
+                  charge.
+                </div>
+              )}
+            </div>
+            <div className="form-actions">
+              <button
+                className="button"
+                type="submit"
+                disabled={duplicate || monthly.isPending}
+              >
+                Bill every resident
+              </button>
+            </div>
+          </form>
+        </section>
+      ) : null}
+      <section className="surface">
+        <div className="surface-pad record-header">
+          <div>
+            <p className="eyebrow">Account history</p>
+            <h2 className="section-title">
+              {manager
+                ? "Resident collection status"
+                : "Your maintenance bills"}
+            </h2>
+          </div>
+        </div>
+        {rows.length ? (
+          <div className="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  {manager ? <th>Resident</th> : null}
+                  <th>Period</th>
+                  <th>Bill number</th>
+                  <th>Total</th>
+                  <th>Paid</th>
+                  <th>Status</th>
+                  <th>Receipt</th>
+                </tr>
+              </thead>
+              <tbody>
+                {rows.map((bill) => (
+                  <tr key={bill.id}>
+                    {manager ? (
+                      <td>{bill.billed_user?.full_name || "Resident"}</td>
+                    ) : null}
+                    <td>
+                      {new Date(
+                        bill.billing_year ?? 2000,
+                        (bill.billing_month ?? 1) - 1,
+                      ).toLocaleString("en", {
+                        month: "long",
+                        year: "numeric",
+                      })}
+                    </td>
+                    <td>{bill.bill_number}</td>
+                    <td>₹{bill.total_amount.toLocaleString("en-IN")}</td>
+                    <td>₹{bill.paid_amount.toLocaleString("en-IN")}</td>
+                    <td>
+                      <span className={`status ${bill.status}`}>
+                        {bill.status}
+                      </span>
+                    </td>
+                    <td>
+                      <button
+                        className="icon-button"
+                        aria-label={`Download receipt for ${bill.bill_number}`}
+                        onClick={() => download(bill)}
+                      >
+                        <Download size={17} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <EmptyState
+            title="No maintenance records"
+            body="Monthly charges will appear here after an administrator publishes them."
+          />
+        )}
+      </section>
+    </div>
   );
 }
-function Metric({
+function Stat({
   icon,
   label,
   value,
-  tone,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string;
-  tone: string;
 }) {
   return (
-    <Paper sx={{ p: 2.5, borderTop: `4px solid ${tone}` }}>
-      <Stack direction="row" justifyContent="space-between">
-        <Box>
-          <Typography variant="caption" color="text.secondary">
-            {label}
-          </Typography>
-          <Typography variant="h4">{value}</Typography>
-        </Box>
-        <Box sx={{ color: tone }}>{icon}</Box>
-      </Stack>
-    </Paper>
+    <article className="surface stat">
+      <span className="metric-icon">{icon}</span>
+      <strong>{value}</strong>
+      <span>{label}</span>
+    </article>
   );
 }
-function Empty() {
-  return (
-    <Paper sx={{ p: 7, textAlign: "center" }}>
-      <ReceiptLongRounded sx={{ fontSize: 58, color: "text.disabled" }} />
-      <Typography variant="h5">No maintenance records yet</Typography>
-      <Typography color="text.secondary">
-        The monthly maintenance charge will appear here after an administrator
-        publishes it.
-      </Typography>
-    </Paper>
-  );
-}
-function Download({ bill }: { bill: Bill }) {
-  const [downloading, setDownloading] = useState(false);
-  return (
-    <Button
-      variant="outlined"
-      color="inherit"
-      startIcon={<DownloadRounded />}
-      disabled={downloading}
-      onClick={async () => {
-        setDownloading(true);
-        try {
-          const response = await api.get(`/bills/${bill.id}/pdf`, { responseType: "blob" });
-          const url = URL.createObjectURL(new Blob([response.data], { type: "application/pdf" }));
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = `${bill.bill_number}.pdf`;
-          document.body.appendChild(link);
-          link.click();
-          link.remove();
-          window.setTimeout(() => URL.revokeObjectURL(url), 1000);
-        } catch (error: any) {
-          enqueueSnackbar(error?.response?.data?.detail || "Receipt could not be downloaded", { variant: "error" });
-        } finally {
-          setDownloading(false);
-        }
-      }}
-    >
-      {downloading ? "Preparing…" : "Receipt"}
-    </Button>
-  );
+async function download(bill: Bill) {
+  const response = await api.get(`/bills/${bill.id}/pdf`, {
+    responseType: "blob",
+  });
+  const url = URL.createObjectURL(response.data);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `${bill.bill_number}.pdf`;
+  link.click();
+  URL.revokeObjectURL(url);
 }
 async function loadRazorpay() {
   if ((window as any).Razorpay) return;
@@ -613,8 +356,7 @@ async function loadRazorpay() {
     const script = document.createElement("script");
     script.src = "https://checkout.razorpay.com/v1/checkout.js";
     script.onload = () => resolve();
-    script.onerror = () =>
-      reject(new Error("Razorpay checkout could not load"));
+    script.onerror = () => reject(new Error("Payment checkout could not load"));
     document.body.appendChild(script);
   });
 }

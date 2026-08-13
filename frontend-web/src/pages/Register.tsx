@@ -1,66 +1,240 @@
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle as CheckCircle2,
+} from "@phosphor-icons/react";
 import { useState } from "react";
-import { Alert, Box, Button, Card, CardContent, Link, MenuItem, Stack, TextField, Typography } from "@mui/material";
 import { useQuery } from "@tanstack/react-query";
-import { Link as RouterLink } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { api } from "../api/client";
-import { LanguageToggle } from "../components/LanguageToggle";
+import Brand from "../components/Brand";
+import DateTimeField from "../components/DateTimeField";
 
-type SocietyOption = { id: number; name: string; buildings: { id: number; name: string; flats: { id: number; number: string }[] }[] };
-
+type SocietyOption = {
+  id: number;
+  name: string;
+  buildings: {
+    id: number;
+    name: string;
+    flats: { id: number; number: string }[];
+  }[];
+};
+const initial = {
+  full_name: "",
+  email: "",
+  phone: "",
+  date_of_birth: "",
+  password: "",
+  society_id: "",
+  building_name: "",
+  flat_number: "",
+};
 export default function Register() {
-  const [form, setForm] = useState({ full_name: "", email: "", phone: "", date_of_birth: "", password: "", society_id: "", building_name: "", flat_number: "" });
-  const [error, setError] = useState<string | null>(null);
+  const [form, setForm] = useState(initial);
+  const [error, setError] = useState("");
   const [submitted, setSubmitted] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const societies = useQuery({ queryKey: ["public-societies"], queryFn: async () => (await api.get<SocietyOption[]>("/auth/societies")).data });
-  const society = societies.data?.find((item) => item.id === Number(form.society_id));
-  const building = society?.buildings.find((item) => item.name === form.building_name);
-  const update = (key: keyof typeof form) => (event: React.ChangeEvent<HTMLInputElement>) => setForm({ ...form, [key]: event.target.value });
-
+  const societies = useQuery({
+    queryKey: ["public-societies"],
+    queryFn: async () =>
+      (await api.get<SocietyOption[]>("/auth/societies")).data,
+  });
+  const society = societies.data?.find(
+    (item) => item.id === Number(form.society_id),
+  );
+  const building = society?.buildings.find(
+    (item) => item.name === form.building_name,
+  );
   async function submit(event: React.FormEvent) {
     event.preventDefault();
-    setLoading(true);
-    setError(null);
+    setError("");
     try {
-      await api.post("/auth/join-requests", { ...form, society_id: Number(form.society_id), phone: form.phone || null });
+      await api.post("/auth/join-requests", {
+        ...form,
+        society_id: Number(form.society_id),
+        phone: form.phone || null,
+      });
       setSubmitted(true);
-    } catch (err: any) {
-      setError(err?.response?.data?.detail || "Your request could not be sent. Please try again.");
-    } finally {
-      setLoading(false);
+    } catch (error: any) {
+      setError(
+        error?.response?.data?.detail ||
+          "Your access request could not be sent. Check the details and try again.",
+      );
     }
   }
-
-  return <Box sx={{ minHeight: "100vh", bgcolor: "background.default", color: "text.primary", p: 2 }}>
-    <Stack alignItems="flex-end" sx={{ maxWidth: 620, mx: "auto", mb: 2 }}><LanguageToggle /></Stack>
-    <Card sx={{ maxWidth: 620, mx: "auto", bgcolor: "background.paper", color: "text.primary" }}>
-      <CardContent sx={{ p: { xs: 3, sm: 5 } }}>
-        {submitted ? <Stack spacing={2} alignItems="flex-start">
-          <Typography variant="overline" color="primary" fontWeight={900}>REQUEST SENT</Typography>
-          <Typography variant="h3">We’ll check your membership.</Typography>
-          <Typography color="text.secondary">An administrator will verify your building and flat before activating the account.</Typography>
-          <Button component={RouterLink} to="/login" variant="contained">Back to sign in</Button>
-        </Stack> : <>
-          <Typography variant="overline" color="primary" fontWeight={900}>VERIFIED MEMBERSHIP</Typography>
-          <Typography variant="h3" sx={{ mt: 1 }}>Request to join</Typography>
-          <Typography color="text.secondary" sx={{ mt: 1 }}>Your exact society, building, and flat are compulsory so the administrator can verify that you live here.</Typography>
-          <Box component="form" onSubmit={submit} sx={{ mt: 3 }}><Stack spacing={2}>
-            <TextField label="Full name" required value={form.full_name} onChange={update("full_name")} />
-            <TextField label="Date of birth" type="date" required value={form.date_of_birth} onChange={update("date_of_birth")} InputLabelProps={{ shrink: true }} />
-            <TextField select label="Society" required value={form.society_id} onChange={(event) => setForm({ ...form, society_id: event.target.value, building_name: "", flat_number: "" })}>{(societies.data ?? []).map((item) => <MenuItem key={item.id} value={item.id}>{item.name}</MenuItem>)}</TextField>
-            <Stack direction={{ xs: "column", sm: "row" }} spacing={2}>
-              <TextField select fullWidth label="Building" required disabled={!society} value={form.building_name} onChange={(event) => setForm({ ...form, building_name: event.target.value, flat_number: "" })}>{(society?.buildings ?? []).map((item) => <MenuItem key={item.id} value={item.name}>{item.name}</MenuItem>)}</TextField>
-              <TextField select fullWidth label="Flat number" required disabled={!building} value={form.flat_number} onChange={update("flat_number")}>{(building?.flats ?? []).map((item) => <MenuItem key={item.id} value={item.number}>{item.number}</MenuItem>)}</TextField>
-            </Stack>
-            <TextField label="Email" type="email" required value={form.email} onChange={update("email")} />
-            <TextField label="Phone number" value={form.phone} onChange={update("phone")} />
-            <TextField label="Create password" type="password" required helperText="Stored securely and never shown to administrators." value={form.password} onChange={update("password")} />
-            {error && <Alert severity="error">{error}</Alert>}
-            <Button type="submit" variant="contained" size="large" disabled={loading || !form.society_id || !form.building_name || !form.flat_number}>{loading ? "Sending request…" : "Request to join"}</Button>
-            <Link component={RouterLink} to="/login" textAlign="center">Already approved? Sign in</Link>
-          </Stack></Box>
-        </>}
-      </CardContent>
-    </Card>
-  </Box>;
+  return (
+    <main className="auth-page register-page">
+      <section className="auth-story">
+        <Brand inverse />
+        <div className="auth-story-copy">
+          <p>Verified membership only</p>
+          <h1>
+            Your home deserves <em>the right access.</em>
+          </h1>
+          <p>
+            Every request is checked against the society register before an
+            account becomes active.
+          </p>
+        </div>
+        <div className="address-graphic" aria-hidden="true">
+          <span>A</span>
+          <span>B</span>
+          <span>C</span>
+          <span>D</span>
+        </div>
+      </section>
+      <section className="auth-panel">
+        <div className="auth-card register-card">
+          <Link to="/login" className="back-link">
+            <ArrowLeft size={16} />
+            Back to sign in
+          </Link>
+          {submitted ? (
+            <div className="auth-success">
+              <CheckCircle2 size={46} weight="duotone" />
+              <h2>Request received</h2>
+              <p>
+                An administrator will verify your building and flat. You can
+                sign in after approval.
+              </p>
+              <Link className="button" to="/login">
+                Return to sign in
+              </Link>
+            </div>
+          ) : (
+            <>
+              <div className="auth-heading">
+                <h2>Request access</h2>
+                <p>
+                  Tell us where you live so the committee can verify your
+                  membership.
+                </p>
+              </div>
+              <form className="auth-form" onSubmit={submit}>
+                <div className="form-grid">
+                  <div className="field">
+                    <label>Full name</label>
+                    <input
+                      required
+                      value={form.full_name}
+                      onChange={(e) =>
+                        setForm({ ...form, full_name: e.target.value })
+                      }
+                    />
+                  </div>
+                  <DateTimeField
+                    label="Date of birth"
+                    required
+                    value={form.date_of_birth}
+                    onChange={(value) =>
+                      setForm({ ...form, date_of_birth: value })
+                    }
+                  />
+                  <div className="field">
+                    <label>Society</label>
+                    <select
+                      required
+                      value={form.society_id}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          society_id: e.target.value,
+                          building_name: "",
+                          flat_number: "",
+                        })
+                      }
+                    >
+                      <option value="">Choose society</option>
+                      {societies.data?.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.name}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Wing / building</label>
+                    <select
+                      required
+                      value={form.building_name}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          building_name: e.target.value,
+                          flat_number: "",
+                        })
+                      }
+                    >
+                      <option value="">Choose wing</option>
+                      {society?.buildings.map((item) => (
+                        <option key={item.id}>{item.name}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>Flat number</label>
+                    <select
+                      required
+                      value={form.flat_number}
+                      onChange={(e) =>
+                        setForm({ ...form, flat_number: e.target.value })
+                      }
+                    >
+                      <option value="">Choose flat</option>
+                      {building?.flats.map((item) => (
+                        <option key={item.id}>{item.number}</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label>
+                      Phone <small>(optional)</small>
+                    </label>
+                    <input
+                      type="tel"
+                      value={form.phone}
+                      onChange={(e) =>
+                        setForm({ ...form, phone: e.target.value })
+                      }
+                    />
+                  </div>
+                </div>
+                <div className="field">
+                  <label>Email address</label>
+                  <input
+                    type="email"
+                    required
+                    value={form.email}
+                    onChange={(e) =>
+                      setForm({ ...form, email: e.target.value })
+                    }
+                  />
+                </div>
+                <div className="field">
+                  <label>Create password</label>
+                  <input
+                    type="password"
+                    required
+                    value={form.password}
+                    onChange={(e) =>
+                      setForm({ ...form, password: e.target.value })
+                    }
+                  />
+                  <small>Administrators can never see your password.</small>
+                </div>
+                {error ? (
+                  <div className="feedback error" role="alert">
+                    {error}
+                  </div>
+                ) : null}
+                <button className="button button-shift" type="submit">
+                  <span>Send access request</span>
+                  <ArrowRight size={18} />
+                </button>
+              </form>
+            </>
+          )}
+        </div>
+      </section>
+    </main>
+  );
 }

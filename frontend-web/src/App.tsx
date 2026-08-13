@@ -5,6 +5,7 @@ import { LoadingPanel } from "./components/StateViews";
 import { useAuthStore } from "./store/auth";
 
 const Login = lazy(() => import("./pages/Login"));
+const Landing = lazy(() => import("./pages/Landing"));
 const Register = lazy(() => import("./pages/Register"));
 const Dashboard = lazy(() => import("./pages/Dashboard"));
 const Complaints = lazy(() => import("./pages/Complaints"));
@@ -35,10 +36,11 @@ function RequireRole({ role, children }: { role: "admin" | "committee"; children
 export default function App() {
   return <Suspense fallback={<LoadingPanel />}>
     <Routes>
+      <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/register" element={<Register />} />
-      <Route path="/" element={<RequireAuth><AppLayout /></RequireAuth>}>
-        <Route index element={<Dashboard />} />
+      <Route element={<RequireAuth><AppLayout /></RequireAuth>}>
+        <Route path="home" element={<Dashboard />} />
         <Route path="complaints" element={<Complaints />} />
         <Route path="bills" element={<Bills />} />
         <Route path="visitors" element={<Visitors />} />
@@ -47,8 +49,8 @@ export default function App() {
         <Route path="ai" element={<AI />} />
         <Route path="admin" element={<RequireRole role="admin"><Admin /></RequireRole>} />
         <Route path="committee" element={<RequireRole role="committee"><Committee /></RequireRole>} />
-        <Route path="*" element={<Navigate to="/" replace />} />
       </Route>
+      <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>
   </Suspense>;
 }
